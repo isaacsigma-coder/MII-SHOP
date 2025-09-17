@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Buyer Reasons — Paper Props Shop</title>
+  <style>
+    body{font-family:Inter,system-ui,Segoe UI,Arial; margin:0; background:#f6f8fb; color:#111}
+    header{background:#fff; padding:16px 20px; border-bottom:1px solid #e6eef8; display:flex; justify-content:space-between; align-items:center}
+    h1{margin:0; font-size:18px}
+    .container{max-width:980px; margin:20px auto; padding:0 18px}
+    .controls{display:flex; gap:8px; align-items:center; margin-bottom:12px}
+    input.search{padding:8px 10px; border-radius:8px; border:1px solid #e6eef8; width:260px}
+    table{width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden; box-shadow:0 8px 20px rgba(13,18,37,0.06)}
+    th, td{padding:10px 12px; text-align:left; border-bottom:1px solid #f2f6fb; font-size:14px}
+    th{background:#f8fbff; font-weight:700}
+    .muted{color:#6b7280; font-size:13px}
+    .btn{background:#2b6cb0;color:#fff;padding:8px 10px;border-radius:8px;border:none;cursor:pointer;font-weight:600}
+    .small{font-size:12px;padding:6px 8px}
+    .empty{padding:20px; text-align:center; color:#6b7280}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Buyer Reasons — Admin</h1>
+    <div>
+      <button onclick="location.href='index.html'" class="btn small">Open shop</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="controls">
+      <input id="filterInput" class="search" placeholder="Search name, product, or reason" />
+      <select id="productFilter">
+        <option value="">All products</option>
+      </select>
+      <button id="exportBtn" class="btn small">Export CSV</button>
+      <button id="clearBtn" class="small" style="background:#ef4444;color:#fff;border:none;border-radius:8px">Clear all</button>
+    </div>
+
+    <div id="tableWrap">
+      <!-- table inserted here -->
+    </div>
+
+    <div style="margin-top:12px" class="muted">Data is stored locally in your browser. Clearing browser storage will remove it.</div>
+  </main>
+
+  <script>
+    const PURCHASES_KEY = 'paper-shop-purchases';
+    const PRODUCTS_KEY = 'paper-shop-products';
+
+    function loadPurchases(){ try{ return JSON.parse(localStorage.getItem(PURCHASES_KEY) || '[]'); }catch(e){ return []; } }
+    function loadProducts(){ try{ return JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]'); }catch(e){ return []; } }
+
+    const productFilter = document.getElementById('productFilter');
+    const filterInput = document.getElementById('filterInput');
+    const tableWrap = document.getElementById('tableWrap');
+
+    function populateProductFilter(){
+      const products = loadProducts();
+      productFilter.innerHTML = '<option value="">All products</option>';
+      products.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.title;
+        opt.textContent = p.title;
+        productFilter.appendChild(opt);
+      });
+    }
+
+    function renderTable(){
+      const purchases = loadPurchases().slice().reverse(); // newest first
+      const q = filterInput.value.trim().toLowerCase();
+      const pf = productFilter.value;
+
+      const filtered = purchases.filter(r => {
+        if(pf && r.productTitle !== pf) return false;
+        if(!q) return true;
+        return (r.buyerName + ' ' + r.productTitle + ' ' + r.reason).toLowerCase().includes(q);
+      });
+
+      if(filtered.length === 0){
+        tableWrap.innerHTML = '<div class="empty card">No purchases yet.</div>';
+        return;
+      }
+
+      let html = '<table><thead><tr><th>When</th><th>Buyer</th><th>Product</th><th>Qty</th><th>Reason</th><th>Action</th></tr></thead><tbody>';
+      for(const r of filtered){
+        html += `<tr id="row-${r.id}"><td>${new Date(r.date).toLocaleString()}</td><td>${escapeHtml(r.buyerName)}</td><td>${escapeHtml(r.productTitle)}</td><td>${r.quantity}</td><td>${escapeHtml(r.reason)}</td><td><button class="small" onclick="deleteEntry('${r.id}')">Delete</button></td></tr>`;
+      }
+      html += '</tbody></table>';
+      tableWrap.innerHTML = html;
+    }
+
+    function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+    function exportCSV(){
+      const purchases = loadPurchases();
+      if(purchases.length === 0){ alert('No purchases to export'); return; }
+      const header = ['id','date','buyerName','productTitle','quantity','reason'];
+      const rows = purchases.map(p => [p.id, p.date, p.buyerName, p.productTitle, p.quantity, p.reason]);
+      const csv = [header.join(','), ...rows.map(r => r.map(col=>`"${String(col).replace(/"/g,'""')}"`).join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'paper-shop-purchases.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function deleteEntry(id){
+      if(!confirm('Delete this purchase?')) return;
+      const arr = loadPurchases().filter(r => r.id !== id);
+      localStorage.setItem(PURCHASES_KEY, JSON.stringify(arr));
+      renderTable();
+    }
+
+    document.getElementById('exportBtn').addEventListener('click', exportCSV);
+    document.getElementById('clearBtn').addEventListener('click', ()=> {
+      if(confirm('This will delete all purchase records. Continue?')){
+        localStorage.removeItem(PURCHASES_KEY);
+        renderTable();
+      }
+    });
+
+    filterInput.addEventListener('input', renderTable);
+    productFilter.addEventListener('change', renderTable);
+
+    // initial render
+    populateProductFilter();
+    renderTable();
+
+    // watch for product updates (if user edits from shop page)
+    window.addEventListener('storage', (e) => {
+      if(e.key === PRODUCTS_KEY) populateProductFilter();
+      if(e.key === PURCHASES_KEY) renderTable();
+    });
+  </script>
+</body>
+</html>
